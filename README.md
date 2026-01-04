@@ -1,103 +1,220 @@
-### BoberIntruder — Turbo Intruder payload/script for content discovery
+# Custom Turbo Intruder Attack Script
 
-#### Overview
+This project is a highly flexible and extensible **Custom Turbo Intruder Attack Script** designed to emulate and extend Burp Suite Intruder’s attack modes, while providing advanced payload transformation, response evaluation, recursion, and attack orchestration.
 
-BoberIntruder is a Turbo Intruder script intended to extend Burp's high-speed request engine with flexible payload transformation, response evaluation and simple redirect/recursive crawling logic. It is designed for directory and file discovery workflows (wordlist-driven), with hooks to customize how words are transformed before sending, which responses are considered interesting, and how redirects and recursive enumeration are handled.
-
-Turbo Intruder context
-
-- Turbo Intruder is a Burp extension that lets you drive many HTTP requests quickly from custom Python scripts. BoberIntruder is written in that scripting style and plugs into Turbo Intruder’s request engine via the expected queueRequests and handleResponse functions. Use it inside Turbo Intruder when you want more control over payload processing, redirect following and result filtering than a plain wordlist runner provides.
+The script is intentionally **dynamic and user-modifiable**, optimized for real-world testing scenarios where payload structure, count, and behavior must be adjusted quickly with minimal code changes.
 
 ---
 
-#### Key capabilities
+## ✨ Key Features
 
-- Payload transformation modes
-    - url_enc: URL-encodes each word before queuing.
-    - extensions: URL-encodes then appends a configurable list of file extensions (e.g., .txt, .php, or empty) to each word.
-    - base64: encodes word with base64.
-    - any: user-defined transformation function (example provided that appends a trailing slash).
-    - none: pass-through (no transformation).
-- Wordlist-driven request queuing
-    - Reads a wordlist file once, removes empty lines, transforms each entry and queues requests concurrently.
-- Response evaluation and filtering
-    - evaluate_request lets you define simple predicate rules (status, wordcount, length, response content) to skip or accept responses. Configurable via a small list of lambda predicates.
-- Redirect handling
-    - Optional automatic follow of Location headers for 3xx responses; extracts path portion from absolute redirects and queues it for further requests.
-    - Excludes configured redirect locations to avoid loops or undesired destinations.
-- Recursive enumeration
-    - Optional recursive mode that, when a successful path ends with a trailing slash, will append entries from a second wordlist to the path and queue those requests.
-- Exclusions and loop prevention
-    - EXCLUDED_ENDPOINTS prevents queuing known endpoints (e.g., logout).
-    - EXCLUDED_LOCATIONS prevents following specific redirect targets.
-- Safe-fail behavior
-    - If a rule predicate raises an exception while evaluating a response, the script treats that response as skipped to avoid breaking the run.
+- Multiple Intruder-style attack modes:
+  - **Default**
+  - **Sniper**
+  - **Battering Ram**
+  - **Pitchfork**
+  - **Cluster Bomb**
+- Pluggable **payload transformation pipeline**
+- Centralized **response evaluation rules**
+- **Recursive discovery mode** with optional expansion
+- Redirect following with loop prevention
+- Designed for **readability, flexibility, and on-the-fly customization**
 
 ---
 
-#### Configuration (top of script)
+## 🧠 Design Philosophy
 
-- Payload transformer selection
-    - MODE1: mode used when queuing initial requests (default 'url_enc').
-    - MODE2: mode used during handleResponse recursive/queued follow-up requests (default 'url_enc').
-- Wordlists
-    - LIST1: primary wordlist used by queueRequests (default: /usr/share/seclists/Discovery/Web-Content/common.txt).
-    - LIST2: secondary wordlist used for recursive enumeration (default: same as LIST1).
-- Concurrency (in queueRequests)
-    - concurrentConnections=5, requestsPerConnection=100, pipeline=False (adjust inside queueRequests if needed).
-- Redirect / recursion toggles
-    - FOLLOW_REDIRECT (True/False)
-    - RECURSIVE (True/False)
-- Exclusions
-    - EXCLUDED_ENDPOINTS: list of endpoint names to never queue (e.g., ['logout']).
-    - EXCLUDED_LOCATIONS: list of substrings to detect in Location headers to avoid following.
+This framework prioritizes:
 
----
+- **Configurability over compactness**
+- **Explicit logic over clever abstractions**
+- **Safe, immutable request handling**
+- Easy adaptation during live testing
 
-#### How it works (high level)
+The goal is to allow the user to change:
+- the number of payload markers,
+- payload sources,
+- attack behavior,
+- or recursion logic
 
-- queueRequests(target, wordlists, mode)
-    - Instantiates Turbo Intruder’s RequestEngine and reads LIST1 once.
-    - For each non-empty word from LIST1: transforms the word by the selected mode, filters against EXCLUDED_ENDPOINTS, and enqueues the request template with the transformed word.
-- handleResponse(req, interesting, mode)
-    - Called for each response. Uses evaluate_request to decide if the response should be added to the results table.
-    - If FOLLOW_REDIRECT is enabled and status is 3xx, the script attempts to extract a Location header from the response body with a case-insensitive regex, filters it against EXCLUDED_LOCATIONS, normalizes absolute URLs to a path, strips a leading slash, and queues a new request for that path.
-    - If RECURSIVE is enabled and the originating word ends with '/', the script reads LIST2, transforms each entry, filters exclusions and queues additional requests under the current path.
+**without rewriting large parts of the script.**
 
 ---
 
-#### Customize quickly
+## 🚀 Attack Modes
 
-- Add or-change transformation behaviors
-    - Edit transformer() to add new modes or change existing behavior. Implement complex encodings or templating logic inside encode_base64() or the any() function.
-- Fine-tune response filtering
-    - Edit RULES inside evaluate_request with predicates to skip uninteresting responses (status codes, exact lengths, presence/absence of strings, wordcount heuristics).
-- Prevent loops and noisy targets
-    - Populate EXCLUDED_ENDPOINTS and EXCLUDED_LOCATIONS to stop hitting logout endpoints or redirect loops.
-- Adjust concurrency
-    - Change RequestEngine parameters in queueRequests to match your lab limits and the target tolerance.
+### 1. Default
+Single payload marker.
+Each payload is tested independently.
+
+**Equivalent to:** Intruder → Sniper (single marker)
 
 ---
 
-#### Practical notes and caveats
+### 2. Sniper
+Multiple payload markers.
+Each position is tested individually while others keep default placeholders.
 
-- Turbo Intruder environment
-    - This script expects to run inside Turbo Intruder and uses RequestEngine, req.template, req.engine.queue, table.add and other Turbo Intruder globals. It is not a standalone Python crawler.
-- Location header extraction
-    - The script parses Location from the raw response text using a regex; if the extension or target returns headers differently, consider using a different extraction method if Turbo Intruder exposes parsed headers.
-- URL normalization
-    - For absolute redirects, the script uses urlparse and only keeps the path portion. Leading slashes are stripped to form relative queue values; adapt this if your target requires a different normalization (e.g., keep leading slash or include query).
-- Error handling
-    - Predicates that raise exceptions cause the response to be skipped. This conservative behavior prevents a single bad predicate from stopping the run, but ensure your predicates are robust to avoid false skips.
-- Wordlist files
-    - Ensure LIST1 and LIST2 paths are correct and readable by your Burp/Turbo Intruder process.
+**Use case:** Discover which parameter is injectable.
 
 ---
 
-#### Example quick edits
+### 3. Battering Ram
+Multiple payload markers.
+The same payload is injected into **all positions simultaneously**.
 
-- Add .bak to extensions: update get_extensions() to include '.bak'.
-- Treat 404 as reject: uncomment or add lambda s, w, l, r: s == 404 inside RULES.
-- Non-URL-encoded queuing: set MODE1 = 'none' to send raw words.
+**Use case:** When parameters must match or mirror each other.
 
 ---
+
+### 4. Pitchfork
+Multiple payload markers.
+Payloads are tested **in parallel**, one from each payload set.
+
+**Use case:** Username/password or paired inputs.
+
+---
+
+### 5. Cluster Bomb
+Multiple payload markers.
+Every possible payload combination is tested.
+
+**Use case:** Exhaustive brute-force scenarios.
+
+⚠️ Use with caution — this grows exponentially.
+
+---
+
+## 🔄 Payload Transformation Pipeline
+
+Payloads can be transformed before injection using selectable modes:
+
+- `url_enc` – URL encoding
+- `extensions` – appends file extensions
+- `base64` – Base64 encoding
+- `custom` – fully user-defined logic
+- `none` – raw payload
+
+The transformation logic is centralized in the `transformer()` function, making it easy to extend.
+
+---
+
+## 🧪 Response Evaluation
+
+All responses pass through a **rule-based evaluation engine**.
+
+Rules are simple predicates that can:
+- filter by status code
+- filter by response length
+- filter by word count
+- match or exclude response content
+
+This allows noisy responses to be ignored without breaking execution.
+
+---
+
+## 🔁 Recursive Discovery Mode
+
+Optional recursive behavior allows the script to:
+
+- Automatically queue follow-up requests when a directory-like response is found
+- Optionally recurse even on non-trailing-slash hits
+- Avoid infinite loops using exclusion lists
+
+### Key Properties
+
+- Recursive payloads are **preloaded once**
+- Requests are generated immutably (no in-place mutation)
+- Original results remain unchanged in the UI
+
+---
+
+## 🔀 Redirect Handling
+
+When enabled, the script:
+
+- Detects `Location` headers in 3xx responses
+- Extracts and normalizes redirect paths
+- Avoids redirect loops via exclusion rules
+- Automatically queues redirected requests
+
+---
+
+## 🧱 Payload & Location Exclusion
+
+Two independent exclusion mechanisms are supported:
+
+- **Payload exclusion**  
+  Prevents dangerous or unwanted payloads (e.g. `logout`)
+
+- **Location exclusion**  
+  Prevents infinite redirect loops
+
+---
+
+## 🛠 Configuration Overview
+
+Key sections designed for quick modification:
+
+- **Payload lists**
+- **Default payload placeholders**
+- **Attack mode selection**
+- **Transformer mode selection**
+- **Recursive behavior toggles**
+- **Evaluation rules**
+
+Most changes require modifying **only one line**.
+
+---
+
+## ⚠️ Performance Notes
+
+- `cluster_bomb` can generate massive request volumes
+- recursion should be used with filters enabled
+- exclusion rules are strongly recommended
+
+---
+
+## 📌 Intended Audience
+
+- Penetration testers
+- Bug bounty hunters
+- CTF players
+- Advanced Burp Suite / Turbo Intruder users
+
+This script assumes familiarity with:
+- Burp Suite
+- Turbo Intruder
+- HTTP request structures
+
+---
+
+## 📄 License & Usage
+
+This project is provided as-is for **educational and authorized security testing only**.
+
+Always ensure you have explicit permission before testing any system.
+
+---
+
+## 🧩 Extensibility Ideas
+
+- Recursive depth limits
+- Payload deduplication
+- Attack-mode inheritance during recursion
+- Stateful discovery graphs
+- Custom response scoring
+
+---
+
+## 🏁 Final Notes
+
+This framework is intentionally **not minimalistic**.
+
+It is designed to be:
+- readable,
+- modifiable,
+- and adaptable during live testing.
+
+If you understand what the script is doing at a glance —  
+then it is working exactly as intended.
